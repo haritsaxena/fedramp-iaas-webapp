@@ -25,6 +25,15 @@ Example: contoso.local
 
 #>
 
+#check for AzureRM 5.0, New-AzureRmADApplication has breaking change in 5.0.0
+Write-Host "Azure RM 5.0.0 is required for running the script, checking version of AzureRm"
+$version = Find-Module -Name "AzureRm" -MinimumVersion 5.0.0
+if ($version.Length -eq 0)
+{
+    Write-Error "Azure RM 5.0.0 not found, cant continue. Please install the latest version of AzureRM"
+    return;
+}
+
 Write-Host "`n `nAZURE IAAS WEB APPLICATION BLUEPRINT AUTOMATION FOR FEDRAMP: Pre-Deployment Script `n" -foregroundcolor green
 Write-Host "This script can be used for creating the necessary preliminary resources to deploy a multi-tier web application architecture with pre-configured security controls to help customers achieve compliance with FedRAMP requirements. See https://github.com/Azure/fedramp-iaas-webapp for more information. `n " -foregroundcolor yellow
 
@@ -262,47 +271,47 @@ function orchestration
 	Select-AzureRmSubscription -SubscriptionId $SubscriptionId | Out-String | Write-Verbose
 
 	# Create AAD app . Fill in $aadClientSecret variable if AAD app was already created
-
-            $guid = [Guid]::NewGuid().toString();
-
-            $aadAppName = "Blueprint" + $guid ;
-			# Check if AAD app with $aadAppName was already created
-			$SvcPrincipals = (Get-AzureRmADServicePrincipal -SearchString $aadAppName);
-			if(-not $SvcPrincipals)
-			{
-					# Create a new AD application if not created before
-					$identifierUri = [string]::Format("http://localhost:8080/{0}",[Guid]::NewGuid().ToString("N"));
-					$defaultHomePage = 'http://contoso.com';
-					$now = [System.DateTime]::Now;
-					$oneYearFromNow = $now.AddYears(1);
-					$aadClientSecret = [Guid]::NewGuid();
-
-					Write-Host "Creating new AAD application ($aadAppName)";
-					$ADApp = New-AzureRmADApplication -DisplayName $aadAppName -HomePage $defaultHomePage -IdentifierUris $identifierUri  -StartDate $now -EndDate $oneYearFromNow -Password $aadClientSecret;
-					$servicePrincipal = New-AzureRmADServicePrincipal -ApplicationId $ADApp.ApplicationId;
-					$SvcPrincipals = (Get-AzureRmADServicePrincipal -SearchString $aadAppName);
-					if(-not $SvcPrincipals)
-					{
-							# AAD app wasn't created
-							Write-Error "Failed to create AAD app $aadAppName. Please log-in to Azure using Login-AzureRmAccount  and try again";
-							return;
-					}
-					$aadClientID = $servicePrincipal.ApplicationId;
-					Write-Host "Created a new AAD Application ($aadAppName) with ID: $aadClientID ";
-			}
-			else
-			{
-					if(-not $aadClientSecret)
-					{
-							$aadClientSecret = Read-Host -Prompt "Aad application ($aadAppName) was already created, input corresponding aadClientSecret and hit ENTER. It can be retrieved from https://manage.windowsazure.com portal" ;
-					}
-					if(-not $aadClientSecret)
-					{
-							Write-Error "Aad application ($aadAppName) was already created. Re-run the script by supplying aadClientSecret parameter with corresponding secret from https://manage.windowsazure.com portal";
-							return;
-					}
-					$aadClientID = $SvcPrincipals[0].ApplicationId;
-			}
+    $guid = [Guid]::NewGuid().toString();
+    $aadAppName = "Blueprint" + $guid ;
+    # create aadclient secret and secure password. Secure password being used in couple of place, moving up higher
+    $aadClientSecret = [Guid]::NewGuid();
+    $securePassword = ConvertTo-SecureString $aadClientSecret -AsPlainText -Force 
+	# Check if AAD app with $aadAppName was already created
+	$SvcPrincipals = (Get-AzureRmADServicePrincipal -SearchString $aadAppName);
+	if(-not $SvcPrincipals)
+	{
+		# Create a new AD application if not created before
+		$identifierUri = [string]::Format("http://localhost:8080/{0}",[Guid]::NewGuid().ToString("N"));
+		$defaultHomePage = 'http://contoso.com';
+		$now = [System.DateTime]::Now;
+		$oneYearFromNow = $now.AddYears(1);
+	
+		Write-Host "Creating new AAD application ($aadAppName)";
+		$ADApp = New-AzureRmADApplication -DisplayName $aadAppName -HomePage $defaultHomePage -IdentifierUris $identifierUri  -StartDate $now -EndDate $oneYearFromNow -Password $securePassword;
+		$servicePrincipal = New-AzureRmADServicePrincipal -ApplicationId $ADApp.ApplicationId;
+		$SvcPrincipals = (Get-AzureRmADServicePrincipal -SearchString $aadAppName);
+		if(-not $SvcPrincipals)
+		{
+				# AAD app wasn't created
+				Write-Error "Failed to create AAD app $aadAppName. Please log-in to Azure using Login-AzureRmAccount  and try again";
+				return;
+		}
+		$aadClientID = $servicePrincipal.ApplicationId;
+		Write-Host "Created a new AAD Application ($aadAppName) with ID: $aadClientID ";
+	}
+	else
+	{
+		if(-not $aadClientSecret)
+		{
+			$aadClientSecret = Read-Host -Prompt "Aad application ($aadAppName) was already created, input corresponding aadClientSecret and hit ENTER. It can be retrieved from https://manage.windowsazure.com portal" ;
+		}
+		if(-not $aadClientSecret)
+		{
+			Write-Error "Aad application ($aadAppName) was already created. Re-run the script by supplying aadClientSecret parameter with corresponding secret from https://manage.windowsazure.com portal";
+			return;
+		}
+		$aadClientID = $SvcPrincipals[0].ApplicationId;
+	}
 
 
 	# Create KeyVault or setup existing keyVault
@@ -329,24 +338,24 @@ function orchestration
 
 		if($keyEncryptionKeyName)
 		{
-				try
-				{
-						$kek = Get-AzureKeyVaultKey -VaultName $keyVaultName -Name $keyEncryptionKeyName -ErrorAction SilentlyContinue;
-				}
-				catch [Microsoft.Azure.KeyVault.KeyVaultClientException]
-				{
-						Write-Host "Couldn't find key encryption key named : $keyEncryptionKeyName in Key Vault: $keyVaultName";
-						$kek = $null;
-				}
+			try
+			{
+					$kek = Get-AzureKeyVaultKey -VaultName $keyVaultName -Name $keyEncryptionKeyName -ErrorAction SilentlyContinue;
+			}
+			catch [Microsoft.Azure.KeyVault.KeyVaultClientException]
+			{
+					Write-Host "Couldn't find key encryption key named : $keyEncryptionKeyName in Key Vault: $keyVaultName";
+					$kek = $null;
+			}
 
-				if(-not $kek)
-				{
-						Write-Host "Creating new key encryption key named:$keyEncryptionKeyName in Key Vault: $keyVaultName";
-						$kek = Add-AzureKeyVaultKey -VaultName $keyVaultName -Name $keyEncryptionKeyName -Destination Software -ErrorAction SilentlyContinue;
-						Write-Host "Created  key encryption key named:$keyEncryptionKeyName in Key Vault: $keyVaultName";
-				}
+			if(-not $kek)
+			{
+					Write-Host "Creating new key encryption key named:$keyEncryptionKeyName in Key Vault: $keyVaultName";
+					$kek = Add-AzureKeyVaultKey -VaultName $keyVaultName -Name $keyEncryptionKeyName -Destination Software -ErrorAction SilentlyContinue;
+					Write-Host "Created  key encryption key named:$keyEncryptionKeyName in Key Vault: $keyVaultName";
+			}
 
-				$keyEncryptionKeyUrl = $kek.Key.Kid;
+			$keyEncryptionKeyUrl = $kek.Key.Kid;
 		}
 
 		$certPassword = New-RandomPassword
@@ -394,8 +403,7 @@ function orchestration
 
 		Write-Host "Set Azure Key Vault Access Policy. Set Application Client Secret in Key Vault: $keyVaultName";
 		$key = Add-AzureKeyVaultKey -VaultName $keyVaultName -Name 'aadClientSecret' -Destination 'Software'
-		$aadClientSecretSecureString = ConvertTo-SecureString $aadClientSecret -AsPlainText -Force
-		$secret = Set-AzureKeyVaultSecret -VaultName $keyVaultName -Name 'aadClientSecret' -SecretValue $aadClientSecretSecureString
+		$secret = Set-AzureKeyVaultSecret -VaultName $keyVaultName -Name 'aadClientSecret' -SecretValue $securePassword
 
 		Write-Host "Set Azure Key Vault Access Policy. Set Key Encryption URL in Key Vault: $keyVaultName";
 		$key = Add-AzureKeyVaultKey -VaultName $keyVaultName -Name 'keyEncryptionKeyURL' -Destination 'Software'
@@ -404,7 +412,6 @@ function orchestration
 	}
 
 }
-
 
 
 try{
