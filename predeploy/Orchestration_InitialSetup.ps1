@@ -26,13 +26,28 @@ Example: contoso.local
 #>
 
 #check for AzureRM 5.0, New-AzureRmADApplication has breaking change in 5.0.0
-Write-Host "Azure RM 5.0.0 is required for running the script, checking version of AzureRm"
-$version = Find-Module -Name "AzureRm" -MinimumVersion 5.0.0
-if ($version.Length -eq 0)
+$modules = Get-Module -Name AzureRM
+$found = $false;
+For ($i=0; $i -le $modules.Length; $i++) 
 {
-    Write-Error "Azure RM 5.0.0 not found, cant continue. Please install the latest version of AzureRM"
+    $ver = [string]$modules.Version[$i];
+    if ($ver.Length -gt 0)
+    {
+        $majVer = $ver.Substring(0,1);
+        if ($majVer -ge 5)
+        {
+            $found = $true;
+            Import-Module -Name AzureRM -MinimumVersion 5.0.0
+            break;
+        }
+    }
+}
+if (!$found)
+{
+    Write-Error "Can't continue, Azure RM 5.0.0 is required for running the script"
     return;
 }
+
 
 Write-Host "`n `nAZURE IAAS WEB APPLICATION BLUEPRINT AUTOMATION FOR FEDRAMP: Pre-Deployment Script `n" -foregroundcolor green
 Write-Host "This script can be used for creating the necessary preliminary resources to deploy a multi-tier web application architecture with pre-configured security controls to help customers achieve compliance with FedRAMP requirements. See https://github.com/Azure/fedramp-iaas-webapp for more information. `n " -foregroundcolor yellow
